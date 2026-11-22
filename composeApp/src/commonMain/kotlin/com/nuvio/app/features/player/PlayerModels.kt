@@ -312,4 +312,6 @@ data class PlayerNowPlayingInfo(
     val title: String,
     val subtitle: String? = null,
     val artworkUrl: String? = null,
+    /** Landscape art shown on an external display while playback starts (iOS). */
+    val backdropUrl: String? = null,
 )

@@ -879,6 +879,7 @@ private fun PlayerScreenRuntime.buildNowPlayingInfo(): PlayerNowPlayingInfo {
             episodeTitle = activeEpisodeTitle,
         ),
         artworkUrl = firstNonBlankUrl(poster, background),
+        backdropUrl = firstNonBlankUrl(background, poster),
     )
 }
 

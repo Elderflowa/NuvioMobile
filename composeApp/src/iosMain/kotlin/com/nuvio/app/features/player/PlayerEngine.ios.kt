@@ -122,6 +122,7 @@ actual fun PlatformPlayerSurface(
                         title = info.title,
                         subtitle = info.subtitle,
                         artworkUrl = info.artworkUrl,
+                        backdropUrl = info.backdropUrl,
                     )
                 }.onFailure { error ->
                     Logger.w(TAG, error) { "Failed to update iOS Now Playing metadata" }

@@ -73,6 +73,56 @@ final class ExternalDisplayHostView: UIView {
         super.layoutSubviews()
         onLayout?()
     }
+
+    // MARK: - Loading backdrop
+
+    private var backdropView: UIView?
+    private var backdropImageView: UIImageView?
+
+    /// Dimmed artwork with a spinner, shown above the video layer until the first frame is ready.
+    func showBackdrop(_ image: UIImage?) {
+        guard let image else { return }
+        if backdropView == nil {
+            let container = UIView(frame: bounds)
+            container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            container.backgroundColor = .black
+
+            let imageView = UIImageView(frame: bounds)
+            imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            imageView.contentMode = .scaleAspectFill
+            imageView.clipsToBounds = true
+            container.addSubview(imageView)
+            backdropImageView = imageView
+
+            let dim = UIView(frame: bounds)
+            dim.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            dim.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+            container.addSubview(dim)
+
+            let spinner = UIActivityIndicatorView(style: .large)
+            spinner.color = UIColor.white.withAlphaComponent(0.8)
+            spinner.center = CGPoint(x: bounds.midX, y: bounds.height * 0.88)
+            spinner.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleTopMargin, .flexibleBottomMargin]
+            spinner.startAnimating()
+            container.addSubview(spinner)
+
+            container.alpha = 0
+            addSubview(container)
+            backdropView = container
+            UIView.animate(withDuration: 0.3) { container.alpha = 1 }
+        }
+        backdropImageView?.image = image
+        if let backdropView { bringSubviewToFront(backdropView) }
+    }
+
+    func hideBackdrop() {
+        guard let container = backdropView else { return }
+        backdropView = nil
+        backdropImageView = nil
+        UIView.animate(withDuration: 0.5, animations: { container.alpha = 0 }) { _ in
+            container.removeFromSuperview()
+        }
+    }
 }
 
 final class ExternalDisplayViewController: UIViewController {

@@ -26,6 +26,7 @@ interface NuvioPlayerBridge {
         title: String,
         subtitle: String?,
         artworkUrl: String?,
+        backdropUrl: String?,
     )
     fun clearNowPlayingInfo()
     fun configureVideoOutput(

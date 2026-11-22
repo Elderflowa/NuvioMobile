@@ -68,13 +68,15 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func updateNowPlayingMetadata(
         title: String,
         subtitle: String?,
-        artworkUrl: String?
+        artworkUrl: String?,
+        backdropUrl: String?
     ) {
         ensurePlayerViewController().updateNowPlayingMetadata(
             title: title,
             subtitle: subtitle,
             artworkUrl: artworkUrl
         )
+        ensurePlayerViewController().setExternalBackdropUrl(backdropUrl)
     }
     func clearNowPlayingInfo() { playerVC?.clearNowPlayingInfo() }
     func configureVideoOutput(
@@ -292,6 +294,9 @@ final class MPVPlayerViewController: UIViewController {
     private var lastAppliedDrawableSize: CGSize = .zero
     private weak var externalHostView: ExternalDisplayHostView?
     private var externalPlaceholderView: UIView?
+    private var externalBackdropUrl: String?
+    private var externalBackdropImage: UIImage?
+    private var externalFirstFrameShown = false
     private var keptPlayingInBackgroundForExternalDisplay = false
 #if NUVIO_SCENE_ACCESSORY
     private var externalDisplayRegistration: Any?
@@ -570,6 +575,28 @@ final class MPVPlayerViewController: UIViewController {
         layoutMetalLayer()
         showExternalDisplayPlaceholder(screen: hostView.window?.screen)
         showExternalDisplayToast("Playing on external display")
+        if !externalFirstFrameShown { hostView.showBackdrop(externalBackdropImage) }
+    }
+
+    /// Landscape artwork shown on the external display until the first video frame is ready.
+    func setExternalBackdropUrl(_ urlString: String?) {
+        guard urlString != externalBackdropUrl else { return }
+        externalBackdropUrl = urlString
+        externalBackdropImage = nil
+        guard let urlString, let url = URL(string: urlString) else { return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data, let image = UIImage(data: data) else { return }
+            DispatchQueue.main.async {
+                guard let self, self.externalBackdropUrl == urlString else { return }
+                self.externalBackdropImage = image
+                if !self.externalFirstFrameShown { self.externalHostView?.showBackdrop(image) }
+            }
+        }.resume()
+    }
+
+    private func externalDisplayFirstFrameReady() {
+        externalFirstFrameShown = true
+        externalHostView?.hideBackdrop()
     }
 
     /// Opaque cover for the phone while the video plays on the external display. It also hides
@@ -844,6 +871,8 @@ final class MPVPlayerViewController: UIViewController {
         activeRequestHeaders = sanitizedHeaders
         applyRequestHeaders(sanitizedHeaders)
         isPlayerLoading = true
+        externalFirstFrameShown = false
+        externalHostView?.showBackdrop(externalBackdropImage)
         isPlayerEnded = false
         isFileLoaded = false
         applyAudioLanguagePreferences(preferredAudioLanguages)
@@ -1518,6 +1547,7 @@ final class MPVPlayerViewController: UIViewController {
                     }
                 case MPV_EVENT_PLAYBACK_RESTART:
                     DispatchQueue.main.async {
+                        self.externalDisplayFirstFrameReady()
                         self.updateState()
                         self.publishNowPlayingForPlaybackSession()
                         self.syncNowPlayingPlaybackState(isPlaying: self.isPlayerPlaying, force: true)
