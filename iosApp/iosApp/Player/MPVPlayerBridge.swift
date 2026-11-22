@@ -291,6 +291,8 @@ final class MPVPlayerViewController: UIViewController {
     var keepsPlaybackInBackground: Bool { pictureInPictureController?.keepsPlaybackAlive == true }
     private var lastAppliedDrawableSize: CGSize = .zero
     private weak var externalHostView: ExternalDisplayHostView?
+    private var externalPlaceholderView: UIView?
+    private var keptPlayingInBackgroundForExternalDisplay = false
 #if NUVIO_SCENE_ACCESSORY
     private var externalDisplayRegistration: Any?
 #endif
@@ -566,7 +568,66 @@ final class MPVPlayerViewController: UIViewController {
         hostView.setNeedsLayout()
         hostView.layoutIfNeeded()
         layoutMetalLayer()
+        showExternalDisplayPlaceholder(screen: hostView.window?.screen)
         showExternalDisplayToast("Playing on external display")
+    }
+
+    /// Opaque cover for the phone while the video plays on the external display. It also hides
+    /// the Picture-in-Picture helper layer, which would otherwise show stale frames here.
+    private func showExternalDisplayPlaceholder(screen: UIScreen?) {
+        externalPlaceholderView?.removeFromSuperview()
+
+        let container = UIView(frame: view.bounds)
+        container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        container.backgroundColor = .black
+        container.isUserInteractionEnabled = false
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 88, weight: .ultraLight)
+        let icon = UIImageView(image: UIImage(systemName: "tv", withConfiguration: iconConfig))
+        icon.tintColor = UIColor.white.withAlphaComponent(0.35)
+        icon.contentMode = .scaleAspectFit
+
+        let title = UILabel()
+        title.text = "Playing on External Display"
+        title.font = .systemFont(ofSize: 17, weight: .medium)
+        title.textColor = UIColor.white.withAlphaComponent(0.55)
+
+        var detail = ""
+        if let screen {
+            let pixels = screen.nativeBounds.size
+            detail = "\(Int(max(pixels.width, pixels.height)))×\(Int(min(pixels.width, pixels.height)))"
+            if screen.maximumFramesPerSecond > 0 { detail += " · \(screen.maximumFramesPerSecond) Hz" }
+        }
+        let subtitle = UILabel()
+        subtitle.text = detail
+        subtitle.font = .monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        subtitle.textColor = UIColor.white.withAlphaComponent(0.3)
+        subtitle.isHidden = detail.isEmpty
+
+        let stack = UIStackView(arrangedSubviews: [icon, title, subtitle])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 10
+        stack.setCustomSpacing(18, after: icon)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: -12),
+        ])
+
+        container.alpha = 0
+        view.addSubview(container)
+        externalPlaceholderView = container
+        UIView.animate(withDuration: 0.25) { container.alpha = 1 }
+    }
+
+    private func removeExternalDisplayPlaceholder() {
+        guard let container = externalPlaceholderView else { return }
+        externalPlaceholderView = nil
+        UIView.animate(withDuration: 0.2, animations: { container.alpha = 0 }) { _ in
+            container.removeFromSuperview()
+        }
     }
 
     /// Brief pill on the phone's window so it is obvious when the video moves screens.
@@ -613,6 +674,7 @@ final class MPVPlayerViewController: UIViewController {
 
         lastAppliedDrawableSize = .zero
         syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
+        removeExternalDisplayPlaceholder()
         showExternalDisplayToast("Back on this device")
     }
 
@@ -702,6 +764,13 @@ final class MPVPlayerViewController: UIViewController {
     @objc private func enterBackground() {
         guard mpv != nil else { return }
         if pictureInPictureController?.enteredBackground() == true { return }
+        if externalHostView != nil {
+            // Phone locked or another app opened while a display is connected: keep the audio going.
+            // iOS does not allow GPU rendering from the background, so only the video track is dropped.
+            keptPlayingInBackgroundForExternalDisplay = true
+            setStringProperty("vid", "no")
+            return
+        }
         pauseBackgroundPlayback()
     }
 
@@ -718,6 +787,11 @@ final class MPVPlayerViewController: UIViewController {
         guard mpv != nil else { return }
         let wasInPictureInPicture = pictureInPictureController?.enteredForeground() == true
         if wasInPictureInPicture { return }
+        if keptPlayingInBackgroundForExternalDisplay {
+            keptPlayingInBackgroundForExternalDisplay = false
+            restoreBackgroundVideo()
+            return
+        }
         restoreBackgroundVideo()
         playPlayback()
     }
