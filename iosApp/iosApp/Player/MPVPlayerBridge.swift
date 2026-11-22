@@ -566,6 +566,36 @@ final class MPVPlayerViewController: UIViewController {
         hostView.setNeedsLayout()
         hostView.layoutIfNeeded()
         layoutMetalLayer()
+        showExternalDisplayToast("Playing on external display")
+    }
+
+    /// Brief pill on the phone's window so it is obvious when the video moves screens.
+    private func showExternalDisplayToast(_ text: String) {
+        guard let window = view.window else { return }
+        window.viewWithTag(0x4E55_5601)?.removeFromSuperview()
+
+        let label = UILabel()
+        label.tag = 0x4E55_5601
+        label.text = "  \(text)  "
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = .white
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.75)
+        label.layer.cornerRadius = 14
+        label.layer.masksToBounds = true
+        label.layer.borderWidth = 1
+        label.layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
+        label.sizeToFit()
+        label.frame.size.height = 28
+        label.center = CGPoint(x: window.bounds.midX, y: window.safeAreaInsets.top + 28)
+        label.autoresizingMask = [.flexibleLeftMargin, .flexibleRightMargin, .flexibleBottomMargin]
+        label.alpha = 0
+        window.addSubview(label)
+
+        UIView.animate(withDuration: 0.25) { label.alpha = 1 } completion: { _ in
+            UIView.animate(withDuration: 0.4, delay: 3, options: []) { label.alpha = 0 } completion: { _ in
+                label.removeFromSuperview()
+            }
+        }
     }
 
     /// Returns the video surface to the phone's own view.
@@ -583,6 +613,7 @@ final class MPVPlayerViewController: UIViewController {
 
         lastAppliedDrawableSize = .zero
         syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
+        showExternalDisplayToast("Back on this device")
     }
 
     // MARK: - MPV Setup
