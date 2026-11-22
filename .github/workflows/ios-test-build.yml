@@ -69,6 +69,19 @@ jobs:
             : > local.properties
           fi
 
+      - name: Limit Gradle memory for the runner
+        run: |
+          # The project's gradle.properties asks for ~36 GB of heaps across daemons, which makes the
+          # runner swap heavily. gradle.properties in GRADLE_USER_HOME takes precedence over it.
+          mkdir -p "${HOME}/.gradle"
+          cat >> "${HOME}/.gradle/gradle.properties" <<'EOF2'
+          org.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768m
+          kotlin.daemon.jvmargs=-Xmx2g
+          kotlin.native.jvmArgs=-Xmx3g
+          org.gradle.workers.max=2
+          EOF2
+          sed -i '' 's/^          //' "${HOME}/.gradle/gradle.properties"
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 
