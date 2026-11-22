@@ -4,3 +4,5 @@ TEAM_ID=
 
 PRODUCT_NAME=Nuvio
 PRODUCT_BUNDLE_IDENTIFIER=com.nuvio.app.Nuvio$(TEAM_ID)
+// Xcode 27 SDK: register the external-display scene accessory (needed on iOS 27+).
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) NUVIO_SCENE_ACCESSORY
