@@ -18,6 +18,18 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
 
     func application(
         _ application: UIApplication,
+        configurationForConnecting connectingSceneSession: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        if connectingSceneSession.role == .windowExternalDisplayNonInteractive {
+            configuration.delegateClass = ExternalDisplaySceneDelegate.self
+        }
+        return configuration
+    }
+
+    func application(
+        _ application: UIApplication,
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         OrientationLockCoordinator.shared.supportedOrientations

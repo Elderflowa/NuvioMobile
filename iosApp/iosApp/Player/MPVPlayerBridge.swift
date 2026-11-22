@@ -290,6 +290,10 @@ final class MPVPlayerViewController: UIViewController {
     var systemControlHandler: PlayerSystemControlHandler?
     var keepsPlaybackInBackground: Bool { pictureInPictureController?.keepsPlaybackAlive == true }
     private var lastAppliedDrawableSize: CGSize = .zero
+    private weak var externalHostView: ExternalDisplayHostView?
+#if NUVIO_SCENE_ACCESSORY
+    private var externalDisplayRegistration: Any?
+#endif
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
     private var pendingLoadRequest: PendingLoadRequest?
@@ -379,6 +383,18 @@ final class MPVPlayerViewController: UIViewController {
         activateAudioSessionForPlayback()
         setupNotifications()
         refreshImmersiveSystemUI()
+        ExternalDisplayCoordinator.shared.playerDidStart(self)
+#if NUVIO_SCENE_ACCESSORY
+        // iOS 27+ only connects the external-display scene once an accessory is registered.
+        // Enable with `-DNUVIO_SCENE_ACCESSORY` in Other Swift Flags (needs the Xcode 27 SDK).
+        if #available(iOS 27.0, *) {
+            let configuration = UISceneConfiguration()
+            configuration.delegateClass = ExternalDisplaySceneDelegate.self
+            externalDisplayRegistration = registerSceneAccessory(
+                UISceneAccessory.externalNonInteractive(sceneConfiguration: configuration)
+            )
+        }
+#endif
     }
 
     func setPictureInPicturePlaceholderVisible(_ visible: Bool) {
@@ -500,10 +516,14 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func layoutMetalLayer() {
-        let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
+        let phoneBounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
+        // While an external display is attached the video surface follows that screen.
+        let bounds = externalHostView.map { CGRect(origin: .zero, size: $0.bounds.size) } ?? phoneBounds
         guard bounds.width > 1, bounds.height > 1 else { return }
 
-        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let scale = externalHostView?.window?.screen.nativeScale
+            ?? view.window?.screen.nativeScale
+            ?? UIScreen.main.nativeScale
         let drawableSize = CGSize(
             width: (bounds.width * scale).rounded(.toNearestOrAwayFromZero),
             height: (bounds.height * scale).rounded(.toNearestOrAwayFromZero)
@@ -514,7 +534,7 @@ final class MPVPlayerViewController: UIViewController {
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
         metalLayer.bounds = CGRect(origin: .zero, size: bounds.size)
-        pictureInPictureController?.displayLayer.frame = bounds
+        pictureInPictureController?.displayLayer.frame = phoneBounds
         let drawableSizeChanged = drawableSize != lastAppliedDrawableSize
         if drawableSizeChanged {
             // mpv's moltenvk context polls drawableSize and resizes its swapchain.
@@ -525,6 +545,44 @@ final class MPVPlayerViewController: UIViewController {
         if drawableSizeChanged {
             command("osd-overlay", args: ["1", "ass-events", ""], checkForErrors: false)
         }
+    }
+
+    // MARK: - External display
+
+    /// Moves the video surface onto an external display. The phone keeps showing the controls.
+    func attachToExternalDisplay(hostView: ExternalDisplayHostView) {
+        guard isViewLoaded else { return }
+        if externalHostView === hostView, metalLayer.superlayer === hostView.layer { return }
+        externalHostView = hostView
+        hostView.onLayout = { [weak self] in self?.layoutMetalLayer() }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.removeFromSuperlayer()
+        hostView.layer.addSublayer(metalLayer)
+        CATransaction.commit()
+
+        lastAppliedDrawableSize = .zero
+        hostView.setNeedsLayout()
+        hostView.layoutIfNeeded()
+        layoutMetalLayer()
+    }
+
+    /// Returns the video surface to the phone's own view.
+    func detachFromExternalDisplay() {
+        guard let hostView = externalHostView else { return }
+        hostView.onLayout = nil
+        externalHostView = nil
+        guard isViewLoaded else { return }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.removeFromSuperlayer()
+        view.layer.addSublayer(metalLayer)
+        CATransaction.commit()
+
+        lastAppliedDrawableSize = .zero
+        syncVideoSurfaceLayoutNow(scheduleDeferredPasses: true)
     }
 
     // MARK: - MPV Setup
@@ -1026,6 +1084,13 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func destroyPlayer() {
+        ExternalDisplayCoordinator.shared.playerDidStop(self)
+#if NUVIO_SCENE_ACCESSORY
+        if #available(iOS 27.0, *), let registration = externalDisplayRegistration as? UISceneAccessoryRegistration {
+            unregisterSceneAccessory(registration)
+            externalDisplayRegistration = nil
+        }
+#endif
         pictureInPictureController?.invalidate()
         pictureInPictureController = nil
         NotificationCenter.default.removeObserver(self)
